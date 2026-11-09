@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f3f1ec">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>İkili</title>
+<style>
+:root{
+  --bg:#f3f1ec; --panel:#ffffff; --ink:#1d1f24; --muted:#6b6f78; --line:#dcd8cf;
+  --claude:#3b4fd8; --claude-soft:#e8ebfc;
+  --gemini:#0e8a6a; --gemini-soft:#dff3ec;
+  --err:#b3261e;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#14161b; --panel:#1d2027; --ink:#eceef2; --muted:#9aa0ab; --line:#2f333c;
+    --claude:#8c9bff; --claude-soft:#232845;
+    --gemini:#4cc9a4; --gemini-soft:#14332a;
+    --err:#ff8a80;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  display:flex; flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);
+}
+header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 14px; border-bottom:1px solid var(--line);
+}
+header h1{font-size:18px; margin:0; letter-spacing:.2px}
+header .btns{display:flex; gap:8px}
+button{
+  font:inherit; color:inherit; background:var(--panel);
+  border:1px solid var(--line); border-radius:10px; padding:7px 12px; cursor:pointer;
+}
+button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--claude); outline-offset:2px}
+#settings{
+  display:none; padding:12px 14px; border-bottom:1px solid var(--line); background:var(--panel);
+}
+#settings.open{display:block}
+#settings label{display:block; font-size:13px; color:var(--muted); margin:10px 0 4px}
+#settings input{
+  width:100%; font:inherit; padding:9px 10px; border-radius:10px;
+  border:1px solid var(--line); background:var(--bg); color:var(--ink);
+}
+#settings p{font-size:13px; color:var(--muted); margin:10px 0 0}
+#log{flex:1; overflow-y:auto; padding:14px; -webkit-overflow-scrolling:touch}
+.empty{color:var(--muted); text-align:center; margin-top:18vh; padding:0 20px}
+.turn{margin-bottom:22px}
+.q{
+  background:var(--ink); color:var(--bg); border-radius:14px 14px 4px 14px;
+  padding:9px 13px; margin:0 0 10px auto; max-width:88%; width:fit-content; white-space:pre-wrap;
+}
+.answers{display:grid; grid-template-columns:1fr; gap:10px}
+@media (min-width:760px){.answers{grid-template-columns:1fr 1fr}}
+.a{
+  background:var(--panel); border:1px solid var(--line); border-left-width:4px;
+  border-radius:12px; padding:10px 13px; min-width:0;
+}
+.a.claude{border-left-color:var(--claude)}
+.a.gemini{border-left-color:var(--gemini)}
+.a .who{font-size:13px; font-weight:600; margin-bottom:4px}
+.a.claude .who{color:var(--claude)}
+.a.gemini .who{color:var(--gemini)}
+.a .txt{white-space:pre-wrap; overflow-wrap:anywhere}
+.a .txt.err{color:var(--err)}
+.a .txt.wait{color:var(--muted)}
+footer{
+  display:flex; gap:8px; align-items:flex-end; padding:10px 14px;
+  padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));
+  border-top:1px solid var(--line); background:var(--bg);
+}
+textarea{
+  flex:1; resize:none; max-height:140px; font:inherit; padding:10px 12px;
+  border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--ink);
+}
+#send{background:var(--ink); color:var(--bg); border-color:var(--ink); padding:10px 16px; font-weight:600}
+#send:disabled{opacity:.5}
+</style>
+</head>
+<body>
+<header>
+  <h1>İkili</h1>
+  <div class="btns">
+    <button id="reset" type="button">Yeni sohbet</button>
+    <button id="gear" type="button" aria-expanded="false" aria-controls="settings">Ayarlar</button>
+  </div>
+</header>
+
+<section id="settings">
+  <label for="kClaude">Claude API anahtarı (boş bırakırsan Claude atlanır)</label>
+  <input id="kClaude" type="password" autocomplete="off" placeholder="sk-ant-…">
+  <label for="mClaude">Claude modeli</label>
+  <input id="mClaude" type="text" autocomplete="off">
+  <label for="kGemini">Gemini API anahtarı</label>
+  <input id="kGemini" type="password" autocomplete="off" placeholder="AIza…">
+  <label for="mGemini">Gemini modeli</label>
+  <input id="mGemini" type="text" autocomplete="off">
+  <p>Anahtarlar yalnızca bu tarayıcıda saklanır ve doğrudan Anthropic ile Google’a gönderilir.</p>
+</section>
+
+<main id="log">
+  <div class="empty" id="empty">Bir soru yaz. Aynı anda ikisine de gider, cevaplar alt alta (geniş ekranda yan yana) görünür.</div>
+</main>
+
+<footer>
+  <textarea id="inp" rows="1" placeholder="Sorunu yaz…"></textarea>
+  <button id="send" type="button">Gönder</button>
+</footer>
+
+<script>
+(function(){
+  var DEF = {mClaude:'claude-sonnet-5-5', mGemini:'gemini-flash-latest'};
+  var ids = ['kClaude','mClaude','kGemini','mGemini'];
+  var el = {};
+  ids.forEach(function(i){ el[i] = document.getElementById(i); });
+  var log = document.getElementById('log');
+  var empty = document.getElementById('empty');
+  var inp = document.getElementById('inp');
+  var sendBtn = document.getElementById('send');
+  var settings = document.getElementById('settings');
+  var gear = document.getElementById('gear');
+  var hist = {claude:[], gemini:[]};
+
+  function load(k){ try { return localStorage.getItem('ikili_'+k) || ''; } catch(e){ return ''; } }
+  function save(k,v){ try { localStorage.setItem('ikili_'+k, v); } catch(e){} }
+
+  ids.forEach(function(i){
+    el[i].value = load(i) || DEF[i] || '';
+    el[i].addEventListener('input', function(){ save(i, el[i].value.trim()); });
+  });
+  if(!load('kClaude') && !load('kGemini')){ settings.classList.add('open'); gear.setAttribute('aria-expanded','true'); }
+
+  gear.addEventListener('click', function(){
+    var open = settings.classList.toggle('open');
+    gear.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  document.getElementById('reset').addEventListener('click', function(){
+    hist = {claude:[], gemini:[]};
+    log.innerHTML = '';
+    log.appendChild(empty);
+  });
+
+  inp.addEventListener('input', function(){
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 140) + 'px';
+  });
+
+  function block(cls, name){
+    var d = document.createElement('div'); d.className = 'a ' + cls;
+    var w = document.createElement('div'); w.className = 'who'; w.textContent = name;
+    var t = document.createElement('div'); t.className = 'txt wait'; t.textContent = 'Yazıyor…';
+    d.appendChild(w); d.appendChild(t);
+    return {root:d, txt:t};
+  }
+  function setText(b, text, isErr){
+    b.txt.className = 'txt' + (isErr ? ' err' : '');
+    b.txt.textContent = text;
+  }
+
+  function askClaude(){
+    var key = el.kClaude.value.trim();
+    var model = el.mClaude.value.trim() || DEF.mClaude;
+    return fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{
+        'content-type':'application/json',
+        'x-api-key':key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({model:model, max_tokens:2048, messages:hist.claude})
+    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(x){
+        if(!x.ok) throw new Error((x.j && x.j.error && x.j.error.message) || 'Claude isteği başarısız oldu.');
+        return (x.j.content || []).filter(function(c){ return c.type === 'text'; })
+          .map(function(c){ return c.text; }).join('\n');
+      });
+  }
+
+  function askGemini(){
+    var key = el.kGemini.value.trim();
+    var model = el.mGemini.value.trim() || DEF.mGemini;
+    var contents = hist.gemini.map(function(m){
+      return {role:m.role === 'assistant' ? 'model' : 'user', parts:[{text:m.content}]};
+    });
+    return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+      method:'POST',
+      headers:{'content-type':'application/json','x-goog-api-key':key},
+      body:JSON.stringify({contents:contents})
+    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(x){
+        if(!x.ok) throw new Error((x.j && x.j.error && x.j.error.message) || 'Gemini isteği başarısız oldu.');
+        var c = x.j.candidates && x.j.candidates[0];
+        var parts = (c && c.content && c.content.parts) || [];
+        var text = parts.map(function(p){ return p.text || ''; }).join('');
+        if(!text) throw new Error('Gemini boş cevap döndürdü (içerik filtrelenmiş olabilir).');
+        return text;
+      });
+  }
+
+  function run(name, hasKey, bl, ask){
+    if(!hasKey){ setText(bl, 'Bu model için anahtar girilmedi. Ayarlar’dan ekleyebilirsin.', true); return Promise.resolve(); }
+    var h = hist[name];
+    return ask().then(function(text){
+      h.push({role:'assistant', content:text});
+      setText(bl, text, false);
+    }).catch(function(e){
+      h.pop(); // başarısız soruyu geçmişten çıkar
+      setText(bl, 'Hata: ' + e.message, true);
+    });
+  }
+
+  function send(){
+    var text = inp.value.trim();
+    if(!text) return;
+    var hasC = !!el.kClaude.value.trim();
+    var hasG = !!el.kGemini.value.trim();
+    if(!hasC && !hasG){
+      settings.classList.add('open'); gear.setAttribute('aria-expanded','true');
+      return;
+    }
+    if(empty.parentNode) empty.parentNode.removeChild(empty);
+    inp.value = ''; inp.style.height = 'auto';
+    sendBtn.disabled = true;
+
+    var turn = document.createElement('div'); turn.className = 'turn';
+    var q = document.createElement('div'); q.className = 'q'; q.textContent = text;
+    var grid = document.createElement('div'); grid.className = 'answers';
+    var bc = block('claude','Claude'), bg = block('gemini','Gemini');
+    grid.appendChild(bc.root); grid.appendChild(bg.root);
+    turn.appendChild(q); turn.appendChild(grid);
+    log.appendChild(turn);
+    log.scrollTop = log.scrollHeight;
+
+    if(hasC) hist.claude.push({role:'user', content:text});
+    if(hasG) hist.gemini.push({role:'user', content:text});
+
+    Promise.all([
+      run('claude', hasC, bc, askClaude),
+      run('gemini', hasG, bg, askGemini)
+    ]).then(function(){
+      sendBtn.disabled = false;
+      log.scrollTop = log.scrollHeight;
+    });
+  }
+
+  sendBtn.addEventListener('click', send);
+  inp.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); }
+  });
+})();
+</script>
+</body>
+</html>
